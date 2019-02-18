@@ -1,5 +1,9 @@
-﻿using System;
+﻿using NetTools;
+using System;
+using System.Collections.Generic;
 using System.Configuration;
+using System.Linq;
+using System.Net;
 using System.Text;
 using System.Web;
 
@@ -14,6 +18,9 @@ namespace Hexasoft
 
         private void ContextBeginRequest(object sender, EventArgs e)
         {
+            if (Bypassed())
+                return;
+
             if (Required())
             {
                 if (!ValidateCredentials())
@@ -26,6 +33,42 @@ namespace Hexasoft
                     httpApplication.CompleteRequest();
                 }
             }
+        }
+
+        private bool Bypassed()
+        {
+            var ip = GetIPAddress();
+
+            if (ip == null)
+                return false;
+
+            string ipRangeBypassSetting = ConfigurationManager.AppSettings["BasicAuthentication.IpRangeBypassList"];
+
+            if (string.IsNullOrEmpty(ipRangeBypassSetting))
+                return false;
+
+            IEnumerable<IPAddressRange> ipRanges = ipRangeBypassSetting.Split('|', ';')
+                .Select(n => IPAddressRange.TryParse(n, out var ipRange) ? ipRange : null)
+                .Where(n => n != null);
+
+            return ipRanges.Any(n => n.Contains(ip));
+        }
+
+        protected IPAddress GetIPAddress()
+        {
+            System.Web.HttpContext context = System.Web.HttpContext.Current;
+            string ipAddress = context.Request.ServerVariables["HTTP_X_FORWARDED_FOR"];
+
+            if (!string.IsNullOrEmpty(ipAddress))
+            {
+                string[] addresses = ipAddress.Split(',');
+                if (addresses.Length != 0 && IPAddress.TryParse(addresses[0], out var ip1))
+                {
+                    return ip1;
+                }
+            }
+
+            return IPAddress.TryParse(context.Request.ServerVariables["REMOTE_ADDR"], out var ip2) ? ip2 : null;
         }
 
         private bool Required()
